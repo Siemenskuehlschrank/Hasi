@@ -32,11 +32,12 @@
     .alert-box {
       background: rgba(0,0,0,0.85);
       color: #fff;
-      padding: 12px 16px;
-      margin-top: 6px;
+      padding: 14px 18px;
+      margin-top: 8px;
       border-radius: 8px;
       max-width: 90vw;
-      animation: fade 5s forwards;
+      white-space: pre-wrap;
+      animation: fade 6s forwards;
     }
     @keyframes fade {
       0% {opacity: 0}
@@ -55,10 +56,9 @@
 <script>
 /* ================= SUPABASE ================= */
 const SUPABASE_URL = "https://pzghhhgoqidhddifolva.supabase.co";
-const SUPABASE_ANON_KEY = "DEIN_ANON_PUBLIC_KEY_HIER";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6Z2hoaGdvcWlkaGRkaWZvbHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNzkyMTcsImV4cCI6MjA4MTY1NTIxN30.lRsdxk46AG_eOam_YCFQONZ0kbzPK0m3NH6RgC9Iq_s";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
 let currentUser = null;
 
 async function initAuth() {
@@ -66,7 +66,7 @@ async function initAuth() {
 
   if (data.session) {
     currentUser = data.session.user;
-    console.log("Bereits eingeloggt:", currentUser.email);
+    console.log("Eingeloggt:", currentUser.email);
     return;
   }
 
@@ -74,17 +74,15 @@ async function initAuth() {
   const password = prompt("Passwort:");
 
   const { data: loginData, error } = await sb.auth.signInWithPassword({
-    email,
-    password
+    email, password
   });
 
   if (error) {
-    alert("Login fehlgeschlagen:\n" + error.message);
+    alert(error.message);
     throw error;
   }
 
   currentUser = loginData.user;
-  console.log("Eingeloggt als:", currentUser.email);
 }
 
 /* ================= MAP ================= */
@@ -99,13 +97,11 @@ function showAlert(text) {
   box.className = "alert-box";
   box.textContent = text;
   document.getElementById("alert-container").appendChild(box);
-  setTimeout(() => box.remove(), 5000);
+  setTimeout(() => box.remove(), 6000);
 }
 
 /* ================= GEO ================= */
-let userMarker = null;
-let userLat = null;
-let userLng = null;
+let userLat, userLng, userMarker;
 
 function startGPS() {
   navigator.geolocation.watchPosition(
@@ -126,7 +122,7 @@ function startGPS() {
 
       await loadPOIs();
     },
-    err => alert("GPS Fehler: " + err.message),
+    err => alert(err.message),
     { enableHighAccuracy: true }
   );
 }
@@ -147,17 +143,9 @@ function distance(lat1, lon1, lat2, lon2) {
 /* ================= POI STATUS ================= */
 function getPoiStatus(poi) {
   const now = new Date();
-
-  if (poi.active === false) return "disabled";
-
-  if (poi.starts_at && new Date(poi.starts_at) > now) {
-    return "upcoming";
-  }
-
-  if (poi.ends_at && new Date(poi.ends_at) < now) {
-    return "expired";
-  }
-
+  if (!poi.active) return "disabled";
+  if (poi.starts_at && new Date(poi.starts_at) > now) return "upcoming";
+  if (poi.ends_at && new Date(poi.ends_at) < now) return "expired";
   return "active";
 }
 
@@ -180,6 +168,20 @@ async function saveDiscovery(poiId) {
   });
 }
 
+/* ================= INSPECT EVENTS ================= */
+async function getInspectEvent(poiId) {
+  const { data, error } = await sb
+    .from("poi_events")
+    .select("*")
+    .eq("poi_id", poiId)
+    .eq("event_type", "inspect")
+    .limit(1)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
 /* ================= POIs ================= */
 const poiMarkers = new Map();
 
@@ -189,25 +191,40 @@ async function loadPOIs() {
     .select("*")
     .eq("active", true);
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+  if (error) return;
 
   for (const poi of data) {
-    if (!poiMarkers.has(poi.id)) {
-      poiMarkers.set(
-        poi.id,
-        L.marker([poi.lat, poi.lng]).addTo(map).bindPopup(poi.name)
-      );
+
+    // Marker nur für sichtbare POIs
+    if (poi.is_visible && !poiMarkers.has(poi.id)) {
+      const marker = L.marker([poi.lat, poi.lng]).addTo(map);
+
+      marker.on("click", async () => {
+        const d = distance(userLat, userLng, poi.lat, poi.lng);
+
+        if (d > 10) {
+          showAlert("Du musst näher heran, um das zu untersuchen.");
+          return;
+        }
+
+        const event = await getInspectEvent(poi.id);
+        if (!event) {
+          showAlert("Hier gibt es nichts weiter zu entdecken.");
+          return;
+        }
+
+        showAlert(event.title + "\n\n" + event.description);
+      });
+
+      poiMarkers.set(poi.id, marker);
     }
 
+    // Discovery / Timed POIs
     const d = distance(userLat, userLng, poi.lat, poi.lng);
     if (d > poi.radius) continue;
 
     const status = getPoiStatus(poi);
     const discovered = await hasDiscovered(poi.id);
-
     if (discovered) continue;
 
     if (status === "active") {
@@ -226,12 +243,7 @@ async function loadPOIs() {
 }
 
 /* ================= START ================= */
-initAuth()
-  .then(startGPS)
-  .catch(err => {
-    console.error(err);
-    alert("Initialisierung fehlgeschlagen");
-  });
+initAuth().then(startGPS);
 </script>
 
 </body>
