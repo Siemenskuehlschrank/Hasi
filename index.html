@@ -295,15 +295,22 @@ async function openInspectEvent(event) {
     btn.textContent = choice.label;
 
     btn.onclick = async () => {
-      await savePlayerChoice(event.id, choice.id);
-      text.textContent = choice.result_text;
-      box.innerHTML = "";
+  await savePlayerChoice(event.id, choice.id);
 
-      const close = document.createElement("button");
-      close.textContent = "Weiter";
-      close.onclick = () => overlay.style.display = "none";
-      box.appendChild(close);
-    };
+  // ⭐ HIER: Forced Event als erledigt markieren
+  if (event.__forcedPoiId) {
+    await saveDiscovery(event.__forcedPoiId);
+  }
+
+  text.textContent = choice.result_text;
+  box.innerHTML = "";
+
+  const close = document.createElement("button");
+  close.textContent = "Weiter";
+  close.onclick = () => overlay.style.display = "none";
+  box.appendChild(close);
+};
+
 
     box.appendChild(btn);
   }
@@ -320,35 +327,27 @@ async function getForcedEvents(poiId) {
   return data || [];
 }
 async function triggerForcedEvent(event, poiId) {
-  if (forcedEventActive) return; // ⛔ Schutz
-
+  if (forcedEventActive) return;
   forcedEventActive = true;
 
+  // Forced Event merkt sich, zu welchem POI es gehört
+  event.__forcedPoiId = poiId;
+
+  await openInspectEvent(event);
+
+  // Overlay beobachten
   const overlay = document.getElementById("event-overlay");
-  const title = document.getElementById("event-title");
-  const text = document.getElementById("event-text");
-  const box = document.getElementById("event-choices");
+  const observer = new MutationObserver(() => {
+    if (overlay.style.display === "none") {
+      forcedEventActive = false;
+      observer.disconnect();
+    }
+  });
 
-  title.textContent = event.title;
-  text.textContent = event.description;
-  box.innerHTML = "";
-
-  const btn = document.createElement("button");
-  btn.textContent = "Weiter";
-  btn.onclick = () => {
-    overlay.style.display = "none";
-    forcedEventActive = false; // ✅ wieder freigeben
-  };
-
-  box.appendChild(btn);
-  overlay.style.display = "flex";
-
-  await sb.from("pois")
-    .update({ is_visible: true })
-    .eq("id", poiId);
-
-  await saveDiscovery(poiId);
+  observer.observe(overlay, { attributes: true });
 }
+
+
 
 
 /* ================= POIs ================= */
