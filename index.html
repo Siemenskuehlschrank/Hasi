@@ -18,16 +18,14 @@
       height: 100%;
       font-family: sans-serif;
     }
-    #map {
-      width: 100%;
-      height: 100%;
-    }
+    #map { width: 100%; height: 100%; }
+
     #alert-container {
       position: fixed;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 9999;
+      z-index: 9000;
     }
     .alert-box {
       background: rgba(0,0,0,0.85);
@@ -37,7 +35,7 @@
       border-radius: 8px;
       max-width: 90vw;
       white-space: pre-wrap;
-      animation: fade 6s forwards;
+      animation: fade 5s forwards;
     }
     @keyframes fade {
       0% {opacity: 0}
@@ -45,10 +43,43 @@
       90% {opacity: 1}
       100% {opacity: 0}
     }
+
+    /* === EVENT OVERLAY === */
+    #event-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    #event-box {
+      background: #111;
+      color: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 90vw;
+    }
+    #event-choices button {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px;
+      font-size: 16px;
+    }
   </style>
 </head>
 
 <body>
+
+<div id="event-overlay">
+  <div id="event-box">
+    <h2 id="event-title"></h2>
+    <p id="event-text"></p>
+    <div id="event-choices"></div>
+  </div>
+</div>
 
 <div id="map"></div>
 <div id="alert-container"></div>
@@ -63,25 +94,14 @@ let currentUser = null;
 
 async function initAuth() {
   const { data } = await sb.auth.getSession();
-
   if (data.session) {
     currentUser = data.session.user;
-    console.log("Eingeloggt:", currentUser.email);
     return;
   }
-
   const email = prompt("E-Mail:");
   const password = prompt("Passwort:");
-
-  const { data: loginData, error } = await sb.auth.signInWithPassword({
-    email, password
-  });
-
-  if (error) {
-    alert(error.message);
-    throw error;
-  }
-
+  const { data: loginData, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
   currentUser = loginData.user;
 }
 
@@ -97,34 +117,57 @@ function showAlert(text) {
   box.className = "alert-box";
   box.textContent = text;
   document.getElementById("alert-container").appendChild(box);
-  setTimeout(() => box.remove(), 6000);
+  setTimeout(() => box.remove(), 5000);
 }
 
 /* ================= GEO ================= */
 let userLat, userLng, userMarker;
-
 function startGPS() {
-  navigator.geolocation.watchPosition(
-    async pos => {
-      userLat = pos.coords.latitude;
-      userLng = pos.coords.longitude;
+  if (!("geolocation" in navigator)) {
+    alert("Geolocation wird vom Browser nicht unterstützt");
+    return;
+  }
 
-      map.setView([userLat, userLng], 16);
+  console.log("Starte GPS…");
 
-      if (!userMarker) {
-        userMarker = L.marker([userLat, userLng])
-          .addTo(map)
-          .bindPopup("Du bist hier")
-          .openPopup();
-      } else {
-        userMarker.setLatLng([userLat, userLng]);
-      }
-
-      await loadPOIs();
+  // 1️⃣ Erste Position sicher holen
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      console.log("Initiale Position:", pos.coords.latitude, pos.coords.longitude);
+      handlePosition(pos);
     },
-    err => alert(err.message),
+    err => {
+      console.error("GPS Initial Fehler:", err);
+      alert("Standort konnte nicht ermittelt werden: " + err.message);
+    },
     { enableHighAccuracy: true }
   );
+
+  // 2️⃣ Danach kontinuierlich tracken
+  navigator.geolocation.watchPosition(
+    pos => handlePosition(pos),
+    err => console.error("GPS Watch Fehler:", err),
+    { enableHighAccuracy: true }
+  );
+}
+async function handlePosition(pos) {
+  userLat = pos.coords.latitude;
+  userLng = pos.coords.longitude;
+
+  console.log("GPS Update:", userLat, userLng);
+
+  map.setView([userLat, userLng], 16);
+
+  if (!userMarker) {
+    userMarker = L.marker([userLat, userLng])
+      .addTo(map)
+      .bindPopup("Du bist hier")
+      .openPopup();
+  } else {
+    userMarker.setLatLng([userLat, userLng]);
+  }
+
+  await loadPOIs();
 }
 
 /* ================= UTILS ================= */
@@ -132,111 +175,155 @@ function distance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/* ================= POI STATUS ================= */
-function getPoiStatus(poi) {
-  const now = new Date();
-  if (!poi.active) return "disabled";
-  if (poi.starts_at && new Date(poi.starts_at) > now) return "upcoming";
-  if (poi.ends_at && new Date(poi.ends_at) < now) return "expired";
-  return "active";
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1*Math.PI/180) *
+            Math.cos(lat2*Math.PI/180) *
+            Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
 /* ================= DISCOVERY ================= */
 async function hasDiscovered(poiId) {
-  const { data } = await sb
-    .from("poi_discoveries")
-    .select("id")
-    .eq("poi_id", poiId)
-    .eq("player_id", currentUser.id)
-    .limit(1);
-
+  const { data } = await sb.from("poi_discoveries")
+    .select("id").eq("poi_id", poiId).eq("player_id", currentUser.id).limit(1);
   return data.length > 0;
 }
-
 async function saveDiscovery(poiId) {
-  await sb.from("poi_discoveries").insert({
-    poi_id: poiId,
-    player_id: currentUser.id
-  });
+  await sb.from("poi_discoveries").insert({ poi_id: poiId, player_id: currentUser.id });
 }
 
-/* ================= INSPECT EVENTS ================= */
+/* ================= INSPECT EVENTS + CHOICES ================= */
 async function getInspectEvent(poiId) {
   const { data, error } = await sb
     .from("poi_events")
     .select("*")
     .eq("poi_id", poiId)
     .eq("event_type", "inspect")
-    .limit(1)
-    .single();
+    .limit(1);
 
-  if (error) return null;
-  return data;
+  if (error) {
+    console.error("Inspect Event Fehler:", error);
+    return null;
+  }
+
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  return data[0];
 }
+
+async function getChoices(eventId) {
+  const { data } = await sb.from("poi_choices").select("*").eq("event_id", eventId);
+  return data || [];
+}
+async function getPlayerChoice(eventId) {
+  const { data, error } = await sb
+    .from("player_choices")
+    .select("choice_id, poi_choices(result_text)")
+    .eq("event_id", eventId)
+    .eq("player_id", currentUser.id)
+    .limit(1);
+
+  if (error) {
+    console.error("getPlayerChoice Fehler:", error);
+    return null;
+  }
+
+  if (!data || data.length === 0) {
+    return null; // ⬅️ WICHTIG
+  }
+
+  return data[0];
+}
+
+
+async function savePlayerChoice(eventId, choiceId) {
+  await sb.from("player_choices").insert({
+    event_id: eventId, choice_id: choiceId, player_id: currentUser.id
+  });
+}
+
+async function openInspectEvent(event) {
+  const overlay = document.getElementById("event-overlay");
+  const title = document.getElementById("event-title");
+  const text = document.getElementById("event-text");
+  const choicesBox = document.getElementById("event-choices");
+
+  overlay.style.display = "flex";
+  title.textContent = event.title;
+  text.textContent = event.description;
+  choicesBox.innerHTML = "";
+
+  // 1️⃣ Prüfen: Hat der Spieler schon gewählt?
+  const existing = await getPlayerChoice(event.id);
+
+  if (existing) {
+    text.textContent = existing.poi_choices.result_text;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Schließen";
+    closeBtn.onclick = () => overlay.style.display = "none";
+
+    choicesBox.appendChild(closeBtn);
+    return;
+  }
+
+  // 2️⃣ Choices erst JETZT laden
+  const choices = await getChoices(event.id);
+  console.log("Choices:", choices);
+
+  if (!choices || choices.length === 0) {
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Schließen";
+    closeBtn.onclick = () => overlay.style.display = "none";
+    choicesBox.appendChild(closeBtn);
+    return;
+  }
+
+  // 3️⃣ Buttons bauen
+  for (const choice of choices) {
+    const btn = document.createElement("button");
+    btn.textContent = choice.label;
+
+    btn.onclick = async () => {
+      await savePlayerChoice(event.id, choice.id);
+      text.textContent = choice.result_text;
+      choicesBox.innerHTML = "";
+
+      const close = document.createElement("button");
+      close.textContent = "Weiter";
+      close.onclick = () => overlay.style.display = "none";
+      choicesBox.appendChild(close);
+    };
+
+    choicesBox.appendChild(btn);
+  }
+}
+
 
 /* ================= POIs ================= */
 const poiMarkers = new Map();
-
 async function loadPOIs() {
-  const { data, error } = await sb
-    .from("pois")
-    .select("*")
-    .eq("active", true);
-
-  if (error) return;
-
+  const { data } = await sb.from("pois").select("*").eq("active", true);
   for (const poi of data) {
-
-    // Marker nur für sichtbare POIs
     if (poi.is_visible && !poiMarkers.has(poi.id)) {
       const marker = L.marker([poi.lat, poi.lng]).addTo(map);
-
       marker.on("click", async () => {
-        const d = distance(userLat, userLng, poi.lat, poi.lng);
-
-        if (d > 10) {
-          showAlert("Du musst näher heran, um das zu untersuchen.");
+        if (distance(userLat, userLng, poi.lat, poi.lng) > 10) {
+          showAlert("Du musst näher heran.");
           return;
         }
-
         const event = await getInspectEvent(poi.id);
-        if (!event) {
-          showAlert("Hier gibt es nichts weiter zu entdecken.");
-          return;
-        }
-
-        showAlert(event.title + "\n\n" + event.description);
+        if (!event) return showAlert("Nichts Besonderes hier.");
+        await openInspectEvent(event);
       });
-
       poiMarkers.set(poi.id, marker);
     }
 
-    // Discovery / Timed POIs
     const d = distance(userLat, userLng, poi.lat, poi.lng);
-    if (d > poi.radius) continue;
-
-    const status = getPoiStatus(poi);
-    const discovered = await hasDiscovered(poi.id);
-    if (discovered) continue;
-
-    if (status === "active") {
+    if (d <= poi.radius && !(await hasDiscovered(poi.id))) {
       showAlert("Entdeckt: " + poi.name);
-      await saveDiscovery(poi.id);
-    }
-
-    if (status === "expired") {
-      showAlert(
-        poi.expired_title || "Zu spät",
-        poi.expired_description || "Dieses Ereignis ist vorbei."
-      );
       await saveDiscovery(poi.id);
     }
   }
