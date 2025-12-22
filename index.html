@@ -18,7 +18,11 @@
       height: 100%;
       font-family: sans-serif;
     }
-    #map { width: 100%; height: 100%; }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
 
     #alert-container {
       position: fixed;
@@ -27,6 +31,7 @@
       transform: translateX(-50%);
       z-index: 9000;
     }
+
     .alert-box {
       background: rgba(0,0,0,0.85);
       color: #fff;
@@ -37,14 +42,14 @@
       white-space: pre-wrap;
       animation: fade 5s forwards;
     }
+
     @keyframes fade {
-      0% {opacity: 0}
-      10% {opacity: 1}
-      90% {opacity: 1}
-      100% {opacity: 0}
+      0% { opacity: 0 }
+      10% { opacity: 1 }
+      90% { opacity: 1 }
+      100% { opacity: 0 }
     }
 
-    /* === EVENT OVERLAY === */
     #event-overlay {
       position: fixed;
       inset: 0;
@@ -54,6 +59,7 @@
       align-items: center;
       justify-content: center;
     }
+
     #event-box {
       background: #111;
       color: #fff;
@@ -61,6 +67,7 @@
       border-radius: 10px;
       max-width: 90vw;
     }
+
     #event-choices button {
       display: block;
       width: 100%;
@@ -85,6 +92,7 @@
 <div id="alert-container"></div>
 
 <script>
+  let forcedEventActive = false;
 /* ================= SUPABASE ================= */
 const SUPABASE_URL = "https://pzghhhgoqidhddifolva.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6Z2hoaGdvcWlkaGRkaWZvbHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNzkyMTcsImV4cCI6MjA4MTY1NTIxN30.lRsdxk46AG_eOam_YCFQONZ0kbzPK0m3NH6RgC9Iq_s";
@@ -98,15 +106,20 @@ async function initAuth() {
     currentUser = data.session.user;
     return;
   }
+
   const email = prompt("E-Mail:");
   const password = prompt("Passwort:");
-  const { data: loginData, error } = await sb.auth.signInWithPassword({ email, password });
+
+  const { data: loginData, error } =
+    await sb.auth.signInWithPassword({ email, password });
+
   if (error) throw error;
   currentUser = loginData.user;
 }
 
 /* ================= MAP ================= */
 const map = L.map("map").setView([51.5, 10], 6);
+
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "&copy; OpenStreetMap"
 }).addTo(map);
@@ -122,6 +135,7 @@ function showAlert(text) {
 
 /* ================= GEO ================= */
 let userLat, userLng, userMarker;
+
 function startGPS() {
   if (!("geolocation" in navigator)) {
     alert("Geolocation wird vom Browser nicht unterstützt");
@@ -130,7 +144,6 @@ function startGPS() {
 
   console.log("Starte GPS…");
 
-  // 1️⃣ Erste Position sicher holen
   navigator.geolocation.getCurrentPosition(
     pos => {
       console.log("Initiale Position:", pos.coords.latitude, pos.coords.longitude);
@@ -143,13 +156,13 @@ function startGPS() {
     { enableHighAccuracy: true }
   );
 
-  // 2️⃣ Danach kontinuierlich tracken
   navigator.geolocation.watchPosition(
     pos => handlePosition(pos),
     err => console.error("GPS Watch Fehler:", err),
     { enableHighAccuracy: true }
   );
 }
+
 async function handlePosition(pos) {
   userLat = pos.coords.latitude;
   userLng = pos.coords.longitude;
@@ -175,21 +188,32 @@ function distance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 +
-            Math.cos(lat1*Math.PI/180) *
-            Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLon/2)**2;
+  const a =
+    Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) *
+    Math.cos(lat2*Math.PI/180) *
+    Math.sin(dLon/2)**2;
+
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
 /* ================= DISCOVERY ================= */
 async function hasDiscovered(poiId) {
-  const { data } = await sb.from("poi_discoveries")
-    .select("id").eq("poi_id", poiId).eq("player_id", currentUser.id).limit(1);
+  const { data } = await sb
+    .from("poi_discoveries")
+    .select("id")
+    .eq("poi_id", poiId)
+    .eq("player_id", currentUser.id)
+    .limit(1);
+
   return data.length > 0;
 }
+
 async function saveDiscovery(poiId) {
-  await sb.from("poi_discoveries").insert({ poi_id: poiId, player_id: currentUser.id });
+  await sb.from("poi_discoveries").insert({
+    poi_id: poiId,
+    player_id: currentUser.id
+  });
 }
 
 /* ================= INSPECT EVENTS + CHOICES ================= */
@@ -201,22 +225,19 @@ async function getInspectEvent(poiId) {
     .eq("event_type", "inspect")
     .limit(1);
 
-  if (error) {
-    console.error("Inspect Event Fehler:", error);
-    return null;
-  }
-
-  if (!data || data.length === 0) {
-    return null;
-  }
-
-  return data[0];
+  if (error) return null;
+  return data?.[0] ?? null;
 }
 
 async function getChoices(eventId) {
-  const { data } = await sb.from("poi_choices").select("*").eq("event_id", eventId);
+  const { data } = await sb
+    .from("poi_choices")
+    .select("*")
+    .eq("event_id", eventId);
+
   return data || [];
 }
+
 async function getPlayerChoice(eventId) {
   const { data, error } = await sb
     .from("player_choices")
@@ -225,22 +246,15 @@ async function getPlayerChoice(eventId) {
     .eq("player_id", currentUser.id)
     .limit(1);
 
-  if (error) {
-    console.error("getPlayerChoice Fehler:", error);
-    return null;
-  }
-
-  if (!data || data.length === 0) {
-    return null; // ⬅️ WICHTIG
-  }
-
+  if (error || !data || data.length === 0) return null;
   return data[0];
 }
 
-
 async function savePlayerChoice(eventId, choiceId) {
   await sb.from("player_choices").insert({
-    event_id: eventId, choice_id: choiceId, player_id: currentUser.id
+    event_id: eventId,
+    choice_id: choiceId,
+    player_id: currentUser.id
   });
 }
 
@@ -248,40 +262,34 @@ async function openInspectEvent(event) {
   const overlay = document.getElementById("event-overlay");
   const title = document.getElementById("event-title");
   const text = document.getElementById("event-text");
-  const choicesBox = document.getElementById("event-choices");
+  const box = document.getElementById("event-choices");
 
   overlay.style.display = "flex";
   title.textContent = event.title;
   text.textContent = event.description;
-  choicesBox.innerHTML = "";
+  box.innerHTML = "";
 
-  // 1️⃣ Prüfen: Hat der Spieler schon gewählt?
   const existing = await getPlayerChoice(event.id);
-
   if (existing) {
     text.textContent = existing.poi_choices.result_text;
-
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "Schließen";
-    closeBtn.onclick = () => overlay.style.display = "none";
-
-    choicesBox.appendChild(closeBtn);
+    const btn = document.createElement("button");
+    btn.textContent = "Schließen";
+    btn.onclick = () => overlay.style.display = "none";
+    box.appendChild(btn);
     return;
   }
 
-  // 2️⃣ Choices erst JETZT laden
   const choices = await getChoices(event.id);
   console.log("Choices:", choices);
 
-  if (!choices || choices.length === 0) {
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "Schließen";
-    closeBtn.onclick = () => overlay.style.display = "none";
-    choicesBox.appendChild(closeBtn);
+  if (!choices.length) {
+    const btn = document.createElement("button");
+    btn.textContent = "Schließen";
+    btn.onclick = () => overlay.style.display = "none";
+    box.appendChild(btn);
     return;
   }
 
-  // 3️⃣ Buttons bauen
   for (const choice of choices) {
     const btn = document.createElement("button");
     btn.textContent = choice.label;
@@ -289,34 +297,86 @@ async function openInspectEvent(event) {
     btn.onclick = async () => {
       await savePlayerChoice(event.id, choice.id);
       text.textContent = choice.result_text;
-      choicesBox.innerHTML = "";
+      box.innerHTML = "";
 
       const close = document.createElement("button");
       close.textContent = "Weiter";
       close.onclick = () => overlay.style.display = "none";
-      choicesBox.appendChild(close);
+      box.appendChild(close);
     };
 
-    choicesBox.appendChild(btn);
+    box.appendChild(btn);
   }
+}
+
+async function getForcedEvents(poiId) {
+  const { data } = await sb
+    .from("poi_events")
+    .select("*")
+    .eq("poi_id", poiId)
+    .eq("event_type", "forced")
+    .eq("auto_trigger", true);
+
+  return data || [];
+}
+async function triggerForcedEvent(event, poiId) {
+  if (forcedEventActive) return; // ⛔ Schutz
+
+  forcedEventActive = true;
+
+  const overlay = document.getElementById("event-overlay");
+  const title = document.getElementById("event-title");
+  const text = document.getElementById("event-text");
+  const box = document.getElementById("event-choices");
+
+  title.textContent = event.title;
+  text.textContent = event.description;
+  box.innerHTML = "";
+
+  const btn = document.createElement("button");
+  btn.textContent = "Weiter";
+  btn.onclick = () => {
+    overlay.style.display = "none";
+    forcedEventActive = false; // ✅ wieder freigeben
+  };
+
+  box.appendChild(btn);
+  overlay.style.display = "flex";
+
+  await sb.from("pois")
+    .update({ is_visible: true })
+    .eq("id", poiId);
+
+  await saveDiscovery(poiId);
 }
 
 
 /* ================= POIs ================= */
 const poiMarkers = new Map();
+
 async function loadPOIs() {
-  const { data } = await sb.from("pois").select("*").eq("active", true);
-  for (const poi of data) {
+  const { data: pois } = await sb
+    .from("pois")
+    .select("*")
+    .eq("active", true);
+
+  for (const poi of pois) {
+
+    const forced = await getForcedEvents(poi.id);
+    if (forced.length && !(await hasDiscovered(poi.id))) {
+      const d = distance(userLat, userLng, poi.lat, poi.lng);
+      if (d <= forced[0].trigger_radius) {
+        await triggerForcedEvent(forced[0], poi.id);
+        continue;
+      }
+    }
+
     if (poi.is_visible && !poiMarkers.has(poi.id)) {
       const marker = L.marker([poi.lat, poi.lng]).addTo(map);
       marker.on("click", async () => {
-        if (distance(userLat, userLng, poi.lat, poi.lng) > 10) {
-          showAlert("Du musst näher heran.");
-          return;
-        }
+        if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
         const event = await getInspectEvent(poi.id);
-        if (!event) return showAlert("Nichts Besonderes hier.");
-        await openInspectEvent(event);
+        if (event) await openInspectEvent(event);
       });
       poiMarkers.set(poi.id, marker);
     }
