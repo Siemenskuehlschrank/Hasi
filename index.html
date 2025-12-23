@@ -454,6 +454,13 @@ const marker = L.marker(
   [poi.lat, poi.lng],
   { icon: getPoiIcon(poi) }
 ).addTo(map)
+// Tooltip vorbereiten (Inhalt kommt später)
+marker.bindTooltip("", {
+  direction: "top",
+  offset: [0, -40],
+  opacity: 0.9,
+  permanent: false
+});
 
 // Name tooltip (hidden by default)
 
@@ -464,24 +471,28 @@ const marker = L.marker(
 
 const onMarkerActivate = async () => {
   const d = distance(userLat, userLng, poi.lat, poi.lng);
+  const discovered = await hasDiscovered(poi.id);
 
-  // ❌ Not discovered → no info
-  if (!(await hasDiscovered(poi.id))) {
+  // ❌ Nicht entdeckt → keinerlei Feedback
+  if (!discovered) {
     return;
   }
 
-  // 👁️ Discovered but far → show name only
+  // ✅ Entdeckt → Name IMMER anzeigen
+  marker.setTooltipContent(poi.name);
+  marker.openTooltip();
+
+  // 👁️ Zu weit weg → nur Name
   if (d > 15) {
-    marker.openTooltip();
     return;
   }
 
-  // ✅ Close enough → normal event logic
+  // 🎭 Nah genug → Event versuchen
   const event = await getInspectEvent(poi.id);
-  if (!event) {
-    marker.openTooltip();
-    return;
-  }
+  if (!event) return;
+
+
+
 
   const requirements = await getEventRequirements(event.id);
   if (requirements.length > 0) {
