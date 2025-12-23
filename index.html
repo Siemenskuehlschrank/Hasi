@@ -79,7 +79,34 @@
 </head>
 
 <body>
-
+  <div id="inventory-overlay"
+  style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.85);
+    z-index:10000;
+    color:white;
+    padding:20px;
+    overflow:auto;">
+  <h2>Inventar</h2>
+  <ul id="inventory-list"></ul>
+  <button onclick="closeInventory()">Schließen</button>
+</div>
+<button id="inventory-btn"
+  style="
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    z-index: 10001;
+    padding: 10px 14px;
+    font-size: 16px;
+    background: #111;
+    color: #fff;
+    border-radius: 8px;
+    border: none;">
+  🎒 Inventar
+</button>
 <div id="event-overlay">
   <div id="event-box">
     <h2 id="event-title"></h2>
@@ -311,9 +338,11 @@ async function openInspectEvent(event) {
   text.textContent = event.description;
   box.innerHTML = "";
 
+  // 1️⃣ Bereits gewählte Entscheidung anzeigen
   const existing = await getPlayerChoice(event.id);
   if (existing) {
     text.textContent = existing.poi_choices.result_text;
+
     const btn = document.createElement("button");
     btn.textContent = "Schließen";
     btn.onclick = () => overlay.style.display = "none";
@@ -321,6 +350,7 @@ async function openInspectEvent(event) {
     return;
   }
 
+  // 2️⃣ Choices laden
   const choices = await getChoices(event.id);
   console.log("Choices:", choices);
 
@@ -332,31 +362,34 @@ async function openInspectEvent(event) {
     return;
   }
 
+  // 3️⃣ Choice-Buttons bauen
   for (const choice of choices) {
-    const btn = document.createElement("button");
-    btn.textContent = choice.label;
+    const choiceBtn = document.createElement("button");
+    choiceBtn.textContent = choice.label;
 
-    btn.onclick = async () => {
-  await savePlayerChoice(event.id, choice.id);
+    choiceBtn.onclick = async () => {
+      await savePlayerChoice(event.id, choice.id);
 
-  // ⭐ HIER: Forced Event als erledigt markieren
-  if (event.__forcedPoiId) {
-    await saveDiscovery(event.__forcedPoiId);
-  }
+      // ⭐ Items vergeben
+      const items = await getItemsForChoice(choice.id);
+      for (const itemKey of items) {
+        await giveItem(itemKey);
+      }
 
-  text.textContent = choice.result_text;
-  box.innerHTML = "";
+      text.textContent = choice.result_text;
+      box.innerHTML = "";
 
-  const close = document.createElement("button");
-  close.textContent = "Weiter";
-  close.onclick = () => overlay.style.display = "none";
-  box.appendChild(close);
-};
+      const closeBtn = document.createElement("button");
+      closeBtn.textContent = "Weiter";
+      closeBtn.onclick = () => overlay.style.display = "none";
+      box.appendChild(closeBtn);
+    };
 
-
-    box.appendChild(btn);
+    // ⭐ DAS WAR DER FEHLER
+    box.appendChild(choiceBtn);
   }
 }
+
 
 async function getForcedEvents(poiId) {
   const { data } = await sb
@@ -375,7 +408,8 @@ async function triggerForcedEvent(event, poiId) {
   // Forced Event merkt sich, zu welchem POI es gehört
   event.__forcedPoiId = poiId;
 
-  await openInspectEvent(event);
+ await tryOpenEvent(event);
+
 
   // Overlay beobachten
   const overlay = document.getElementById("event-overlay");
@@ -415,12 +449,24 @@ async function loadPOIs() {
     if (poi.is_visible && !poiMarkers.has(poi.id)) {
       const marker = L.marker(
       [poi.lat, poi.lng],
-      { icon: defaultPoiIcon }
+      { icon: getPoiIcon(poi) }
 ).addTo(map);
       marker.on("click", async () => {
         if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
         const event = await getInspectEvent(poi.id);
-        if (event) await openInspectEvent(event);
+if (!event) return;
+
+const requirements = await getEventRequirements(event.id);
+if (requirements.length > 0) {
+  const ok = await hasAllRequiredItems(requirements);
+  if (!ok) {
+    showAlert("Dir fehlt etwas, um hier weiterzumachen.");
+    return;
+  }
+}
+
+await openInspectEvent(event);
+
       });
       poiMarkers.set(poi.id, marker);
     }
@@ -432,9 +478,115 @@ async function loadPOIs() {
     }
   }
 }
+async function giveItem(itemKey) {
+  const { data: item, error } = await sb
+    .from("items")
+    .select("id")
+    .eq("key", itemKey)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Item Query Fehler:", error);
+    return;
+  }
+
+  if (!item) {
+    console.warn("Item nicht gefunden:", itemKey);
+    return;
+  }
+
+  await sb.from("player_items").insert({
+    player_id: currentUser.id,
+    item_id: item.id
+  });
+}
+
+async function hasItem(itemKey) {
+  const { data } = await sb
+    .from("player_items")
+    .select("id, items!inner(key)")
+    .eq("items.key", itemKey)
+    .eq("player_id", currentUser.id)
+    .limit(1);
+
+  return data.length > 0;
+}
+async function getEventRequirements(eventId) {
+  const { data } = await sb
+    .from("event_requirements")
+    .select("item_key")
+    .eq("event_id", eventId);
+
+  return data.map(r => r.item_key);
+}
+async function hasAllRequiredItems(itemKeys) {
+  for (const key of itemKeys) {
+    if (!(await hasItem(key))) {
+      return false;
+    }
+  }
+  return true;
+}
+async function tryOpenEvent(event) {
+  const requirements = await getEventRequirements(event.id);
+  if (requirements.length > 0) {
+    const ok = await hasAllRequiredItems(requirements);
+    if (!ok) {
+      showAlert("Dir fehlt etwas, um hier weiterzumachen.");
+      return;
+    }
+  }
+
+  await openInspectEvent(event);
+}
+
+async function getItemsForChoice(choiceId) {
+  const { data, error } = await sb
+    .from("choice_items")
+    .select("item_key")
+    .eq("choice_id", choiceId);
+
+  if (error) {
+    console.error("Choice Items Fehler:", error);
+    return [];
+  }
+
+  return data.map(r => r.item_key);
+}
+async function openInventory() {
+  const overlay = document.getElementById("inventory-overlay");
+  const list = document.getElementById("inventory-list");
+
+  list.innerHTML = "";
+
+  const { data, error } = await sb
+    .from("player_items")
+    .select("items(name, description)")
+    .eq("player_id", currentUser.id);
+
+  if (error || !data || data.length === 0) {
+    list.innerHTML = "<li>Keine Gegenstände</li>";
+  } else {
+    for (const row of data) {
+      const li = document.createElement("li");
+      li.textContent = `${row.items.name} – ${row.items.description ?? ""}`;
+      list.appendChild(li);
+    }
+  }
+
+  overlay.style.display = "block";
+}
+
+function closeInventory() {
+  document.getElementById("inventory-overlay").style.display = "none";
+}
 
 /* ================= START ================= */
 initAuth().then(startGPS);
+
+document
+  .getElementById("inventory-btn")
+  .addEventListener("click", openInventory);
 </script>
 
 </body>
