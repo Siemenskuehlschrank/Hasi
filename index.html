@@ -166,7 +166,7 @@ const battleIcon = L.icon({
   iconAnchor: [24, 48]
 });
 
-const wildlifeIcon = L.icon({
+const pawIcon = L.icon({
   iconUrl: "assets/icons/paw.png",
   iconSize: [48, 48],
   iconAnchor: [24, 48]
@@ -179,7 +179,7 @@ function getPoiIcon(poi) {
     case "battle":
       return battleIcon;
     case "paw":
-      return wildlifeIcon;
+      return pawIcon;
     default:
       return defaultPoiIcon;
   }
