@@ -173,7 +173,7 @@ const wildlifeIcon = L.icon({
 });
 
 function getPoiIcon(poi) {
-  switch (poi.type) {
+  switch (poi.poi.type) {
     case "base":
       return baseIcon;
     case "battle":
