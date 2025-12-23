@@ -279,11 +279,16 @@ async function hasDiscovered(poiId) {
 }
 
 async function saveDiscovery(poiId) {
-  await sb.from("poi_discoveries").insert({
+  const { error } = await sb.from("poi_discoveries").insert({
     poi_id: poiId,
     player_id: currentUser.id
   });
+
+  if (error) {
+    console.error("Discovery Insert Fehler:", error);
+  }
 }
+
 
 /* ================= INSPECT EVENTS + CHOICES ================= */
 async function getInspectEvent(poiId) {
