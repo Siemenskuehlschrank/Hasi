@@ -93,6 +93,7 @@
 
 <script>
   let forcedEventActive = false;
+  let hasCenteredMap = false;
 /* ================= SUPABASE ================= */
 const SUPABASE_URL = "https://pzghhhgoqidhddifolva.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6Z2hoaGdvcWlkaGRkaWZvbHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNzkyMTcsImV4cCI6MjA4MTY1NTIxN30.lRsdxk46AG_eOam_YCFQONZ0kbzPK0m3NH6RgC9Iq_s";
@@ -207,7 +208,10 @@ async function handlePosition(pos) {
 
   console.log("GPS Update:", userLat, userLng);
 
+ if (!hasCenteredMap) {
   map.setView([userLat, userLng], 16);
+  hasCenteredMap = true;
+}
 
   if (!userMarker) {
     userMarker = L.marker([userLat, userLng])
