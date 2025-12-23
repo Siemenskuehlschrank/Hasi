@@ -446,68 +446,35 @@ async function loadPOIs() {
         continue;
       }
     }
-  
+
     // === VISIBLE POIs (Inspect) ===
 if (poi.is_visible && !poiMarkers.has(poi.id)) {
 
-const marker = L.marker(
-  [poi.lat, poi.lng],
-  { icon: getPoiIcon(poi) }
-).addTo(map)
-// Tooltip vorbereiten (Inhalt kommt später)
-marker.bindTooltip("", {
-  direction: "top",
-  offset: [0, -40],
-  opacity: 0.9,
-  permanent: false
-});
-
-// Name tooltip (hidden by default)
-
-
+  const marker = L.marker(
+    [poi.lat, poi.lng],
+    { icon: getPoiIcon(poi) }
+  ).addTo(map);
 
   // 🔽 HIER – genau hier
   L.DomEvent.disableClickPropagation(marker);
 
-const onMarkerActivate = async () => {
-  const d = distance(userLat, userLng, poi.lat, poi.lng);
+  const onMarkerActivate = async () => {
+    if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
 
-  let discovered = await hasDiscovered(poi.id);
+    const event = await getInspectEvent(poi.id);
+    if (!event) return;
 
-  // 🔓 Discovery per Klick erzwingen
-  if (!discovered && d <= poi.radius) {
-    await saveDiscovery(poi.id);
-    discovered = true;
-    showAlert("Entdeckt: " + poi.name);
-  }
-
-  // ❌ Immer noch nicht entdeckt → nichts anzeigen
-  if (!discovered) return;
-
-  // ✅ Entdeckt → Name immer anzeigen
-  marker.setTooltipContent(poi.name);
-  marker.openTooltip();
-
-  // 👁️ Zu weit weg → nur Name
-  if (d > 15) return;
-
-  // 🎭 Nah genug → Event öffnen
-  const event = await getInspectEvent(poi.id);
-  if (!event) return;
-
-  const requirements = await getEventRequirements(event.id);
-  if (requirements.length > 0) {
-    const ok = await hasAllRequiredItems(requirements);
-    if (!ok) {
-      showAlert("Dir fehlt etwas, um hier weiterzumachen.");
-      return;
+    const requirements = await getEventRequirements(event.id);
+    if (requirements.length > 0) {
+      const ok = await hasAllRequiredItems(requirements);
+      if (!ok) {
+        showAlert("Dir fehlt etwas, um hier weiterzumachen.");
+        return;
+      }
     }
-  }
 
-  await openInspectEvent(event);
-};
-
-
+    await openInspectEvent(event);
+  };
 
   marker.on("click", onMarkerActivate);
   marker.on("tap", onMarkerActivate);
@@ -518,23 +485,14 @@ const onMarkerActivate = async () => {
 
 
     // === PASSIVE DISCOVERY ===
-const d = distance(userLat, userLng, poi.lat, poi.lng);
-
-
-
-
-  const marker = poiMarkers.get(poi.id);
-  if (marker && !marker.getTooltip()) {
-    marker.bindTooltip(poi.name, {
-      direction: "top",
-      offset: [0, -40],
-      opacity: 0.9,
-      permanent: false
-    });
+    const d = distance(userLat, userLng, poi.lat, poi.lng);
+    if (d <= poi.radius && !(await hasDiscovered(poi.id))) {
+      showAlert("Entdeckt: " + poi.name);
+      await saveDiscovery(poi.id);
+    }
   }
 }
 
-}
 async function giveItem(itemKey) {
   const { data: item, error } = await sb
     .from("items")
@@ -636,9 +594,6 @@ async function openInventory() {
 
 function closeInventory() {
   document.getElementById("inventory-overlay").style.display = "none";
-}
-function canShowPoiName(poi) {
-  return hasDiscovered(poi.id);
 }
 
 /* ================= START ================= */
