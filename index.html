@@ -118,6 +118,44 @@ async function initAuth() {
 }
 
 /* ================= MAP ================= */
+// ================= POI ICONS =================
+
+const defaultPoiIcon = L.icon({
+  iconUrl: "assets/icons/default.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+
+const baseIcon = L.icon({
+  iconUrl: "assets/icons/base.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+
+const battleIcon = L.icon({
+  iconUrl: "assets/icons/battle.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+
+const wildlifeIcon = L.icon({
+  iconUrl: "assets/icons/paw.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+
+function getPoiIcon(poi) {
+  switch (poi.type) {
+    case "base":
+      return baseIcon;
+    case "battle":
+      return battleIcon;
+    case "ambush":
+      return wildlifeIcon;
+    default:
+      return defaultPoiIcon;
+  }
+}
 const map = L.map("map").setView([51.5, 10], 6);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -371,7 +409,10 @@ async function loadPOIs() {
     }
 
     if (poi.is_visible && !poiMarkers.has(poi.id)) {
-      const marker = L.marker([poi.lat, poi.lng]).addTo(map);
+      const marker = L.marker(
+      [poi.lat, poi.lng],
+      { icon: defaultPoiIcon }
+).addTo(map);
       marker.on("click", async () => {
         if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
         const event = await getInspectEvent(poi.id);
