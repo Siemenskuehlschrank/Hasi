@@ -516,10 +516,14 @@ const onMarkerActivate = async () => {
 
 
     // === PASSIVE DISCOVERY ===
-    const d = distance(userLat, userLng, poi.lat, poi.lng);
+const d = distance(userLat, userLng, poi.lat, poi.lng);
+
+// 🔓 Discovery per Interaktion erzwingen
 if (d <= poi.radius && !(await hasDiscovered(poi.id))) {
-  showAlert("Entdeckt: " + poi.name);
   await saveDiscovery(poi.id);
+  showAlert("Entdeckt: " + poi.name);
+}
+
 
   const marker = poiMarkers.get(poi.id);
   if (marker && !marker.getTooltip()) {
