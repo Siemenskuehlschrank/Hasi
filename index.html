@@ -471,28 +471,29 @@ marker.bindTooltip("", {
 
 const onMarkerActivate = async () => {
   const d = distance(userLat, userLng, poi.lat, poi.lng);
-  const discovered = await hasDiscovered(poi.id);
 
-  // ❌ Nicht entdeckt → keinerlei Feedback
-  if (!discovered) {
-    return;
+  let discovered = await hasDiscovered(poi.id);
+
+  // 🔓 Discovery per Klick erzwingen
+  if (!discovered && d <= poi.radius) {
+    await saveDiscovery(poi.id);
+    discovered = true;
+    showAlert("Entdeckt: " + poi.name);
   }
 
-  // ✅ Entdeckt → Name IMMER anzeigen
+  // ❌ Immer noch nicht entdeckt → nichts anzeigen
+  if (!discovered) return;
+
+  // ✅ Entdeckt → Name immer anzeigen
   marker.setTooltipContent(poi.name);
   marker.openTooltip();
 
   // 👁️ Zu weit weg → nur Name
-  if (d > 15) {
-    return;
-  }
+  if (d > 15) return;
 
-  // 🎭 Nah genug → Event versuchen
+  // 🎭 Nah genug → Event öffnen
   const event = await getInspectEvent(poi.id);
   if (!event) return;
-
-
-
 
   const requirements = await getEventRequirements(event.id);
   if (requirements.length > 0) {
@@ -507,6 +508,7 @@ const onMarkerActivate = async () => {
 };
 
 
+
   marker.on("click", onMarkerActivate);
   marker.on("tap", onMarkerActivate);
 
@@ -518,11 +520,7 @@ const onMarkerActivate = async () => {
     // === PASSIVE DISCOVERY ===
 const d = distance(userLat, userLng, poi.lat, poi.lng);
 
-// 🔓 Discovery per Interaktion erzwingen
-if (d <= poi.radius && !(await hasDiscovered(poi.id))) {
-  await saveDiscovery(poi.id);
-  showAlert("Entdeckt: " + poi.name);
-}
+
 
 
   const marker = poiMarkers.get(poi.id);
