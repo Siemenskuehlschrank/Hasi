@@ -171,6 +171,21 @@ const pawIcon = L.icon({
   iconSize: [48, 48],
   iconAnchor: [24, 48]
 });
+const aidIcon = L.icon({
+  iconUrl: "assets/icons/aid.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+const shopIcon = L.icon({
+  iconUrl: "assets/icons/shop.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
+const academyIcon = L.icon({
+  iconUrl: "assets/icons/academy.png",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48]
+});
 
 function getPoiIcon(poi) {
   switch (poi.poi_type) {
@@ -180,6 +195,12 @@ function getPoiIcon(poi) {
       return battleIcon;
     case "paw":
       return pawIcon;
+      case "aid":
+      return baseIcon;
+      case "shop":
+      return baseIcon;
+      case "academy":
+      return baseIcon;
     default:
       return defaultPoiIcon;
   }
