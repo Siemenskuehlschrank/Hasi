@@ -574,25 +574,48 @@ async function refreshStorageUI() {
 }
 async function storeItem(playerItemId) {
   // 1. Item laden
-  const { data: itemRow } = await sb
+  const { data: itemRow, error: fetchErr } = await sb
     .from("player_items")
-    .select("item_id")
+    .select("id, item_id")
     .eq("id", playerItemId)
+    .eq("player_id", currentUser.id)
     .maybeSingle();
 
-  if (!itemRow) return;
+  if (fetchErr || !itemRow) {
+    console.error("Item nicht gefunden oder keine Rechte", fetchErr);
+    return;
+  }
 
-  // 2. Aus Spielerinventar löschen
-  await sb.from("player_items").delete().eq("id", playerItemId);
+  // 2. Löschen (MIT Rückgabe!)
+  const { data: deleted, error: delErr } = await sb
+    .from("player_items")
+    .delete()
+    .eq("id", itemRow.id)
+    .select();
+
+  if (delErr || !deleted.length) {
+    console.error("Löschen fehlgeschlagen", delErr);
+    showAlert("Konnte Item nicht einlagern.");
+    return;
+  }
 
   // 3. Ins Lager legen
-  await sb.from("poi_storage").insert({
-    poi_id: activeStoragePoi.id,
-    item_id: itemRow.item_id
-  });
+  const { error: insertErr } = await sb
+    .from("poi_storage")
+    .insert({
+      poi_id: activeStoragePoi.id,
+      item_id: itemRow.item_id
+    });
+
+  if (insertErr) {
+    console.error("Einlagern fehlgeschlagen", insertErr);
+    showAlert("Item ging verloren – bitte melden!");
+    return;
+  }
 
   await refreshStorageUI();
 }
+
 async function takeItem(storageItemId) {
   // 1. Item laden
   const { data: itemRow } = await sb
@@ -696,8 +719,9 @@ const onMarkerActivate = async () => {
 };
 
 
-      marker.on("click", onMarkerActivate);
-      marker.on("tap", () => marker.fire("click"));
+marker.on("click", onMarkerActivate);
+marker.on("touchstart", onMarkerActivate);
+
 
       poiMarkers.set(poi.id, marker);
     }
