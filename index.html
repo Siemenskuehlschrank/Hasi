@@ -287,6 +287,15 @@ function distance(lat1, lon1, lat2, lon2) {
 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
+async function shouldShowPoi(poi) {
+  const discovered = await hasDiscovered(poi.id);
+  if (discovered) return true;
+
+  const d = distance(userLat, userLng, poi.lat, poi.lng);
+  if (d <= poi.radius) return true;
+
+  return false;
+}
 
 /* ================= DISCOVERY ================= */
 async function hasDiscovered(poiId) {
@@ -486,82 +495,88 @@ async function hasTriggeredForcedEvent(eventId) {
 const poiMarkers = new Map();
 
 async function loadPOIs() {
-  const { data: pois } = await sb
+  const { data: pois, error } = await sb
     .from("pois")
     .select("*")
     .eq("active", true);
 
+  if (error || !pois) {
+    console.error("Fehler beim Laden der POIs", error);
+    return;
+  }
+
   for (const poi of pois) {
 
-    // === FORCED EVENTS ===
-const forced = await getForcedEvents(poi.id);
-if (forced.length) {
-  const alreadyTriggered = await hasTriggeredForcedEvent(forced[0].id);
-  if (!alreadyTriggered) {
-    const d = distance(userLat, userLng, poi.lat, poi.lng);
-    if (d <= forced[0].trigger_radius) {
-      await triggerForcedEvent(forced[0], poi.id);
-      continue;
-    }
-  }
-}
-
-    // === VISIBLE POIs (Inspect) ===
-if (poi.is_visible && !poiMarkers.has(poi.id)) {
-
-  const marker = L.marker(
-    [poi.lat, poi.lng],
-    { icon: getPoiIcon(poi) }
-  ).addTo(map);
-
-  // 🔽 HIER – genau hier
-  L.DomEvent.disableClickPropagation(marker);
-
-  const onMarkerActivate = async () => {
-    if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
-
-    const event = await getInspectEvent(poi.id);
-    if (!event) return;
-
-    const requirements = await getEventRequirements(event.id);
-    if (requirements.length > 0) {
-      const ok = await hasAllRequiredItems(requirements);
-      if (!ok) {
-        showAlert("Dir fehlt etwas, um hier weiterzumachen.");
-        return;
+    /* ================= FORCED EVENTS ================= */
+    const forced = await getForcedEvents(poi.id);
+    if (forced.length) {
+      const alreadyTriggered = await hasTriggeredForcedEvent(forced[0].id);
+      if (!alreadyTriggered) {
+        const dForced = distance(userLat, userLng, poi.lat, poi.lng);
+        if (dForced <= forced[0].trigger_radius) {
+          await triggerForcedEvent(forced[0], poi.id);
+          continue;
+        }
       }
     }
 
-    await openInspectEvent(event);
-  };
+    /* ================= DISTANCE & DISCOVERY ================= */
+    const d = distance(userLat, userLng, poi.lat, poi.lng);
+    const discovered = await hasDiscovered(poi.id);
 
-  marker.on("click", onMarkerActivate);
-  marker.on("tap", onMarkerActivate);
+    // 🔓 PASSIVE DISCOVERY (einmalig, abgesichert)
+    if (d <= poi.radius && !discovered && !discoveryLock.has(poi.id)) {
+      discoveryLock.add(poi.id);
+      const { error: discoveryError } = await saveDiscovery(poi.id);
+      if (!discoveryError) {
+        showAlert("Entdeckt: " + poi.name);
+      }
+    }
 
-  poiMarkers.set(poi.id, marker);
-}
+    const shouldBeVisible = discovered || d <= poi.radius;
+    const existingMarker = poiMarkers.get(poi.id);
 
+    /* ================= MARKER ERSTELLEN ================= */
+    if (poi.is_visible && shouldBeVisible && !existingMarker) {
+      const marker = L.marker(
+        [poi.lat, poi.lng],
+        { icon: getPoiIcon(poi) }
+      ).addTo(map);
 
+      L.DomEvent.disableClickPropagation(marker);
 
-    // === PASSIVE DISCOVERY ===
-// === PASSIVE DISCOVERY ===
-const d = distance(userLat, userLng, poi.lat, poi.lng);
+      const onMarkerActivate = async () => {
+        if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
 
-if (
-  d <= poi.radius &&
-  !discoveryLock.has(poi.id)
-) {
-  discoveryLock.add(poi.id);
+        const event = await getInspectEvent(poi.id);
+        if (!event) return;
 
-  const { error } = await saveDiscovery(poi.id);
+        const requirements = await getEventRequirements(event.id);
+        if (requirements.length > 0) {
+          const ok = await hasAllRequiredItems(requirements);
+          if (!ok) {
+            showAlert("Dir fehlt etwas, um hier weiterzumachen.");
+            return;
+          }
+        }
 
-  if (!error) {
-    showAlert("Entdeckt: " + poi.name);
+        await openInspectEvent(event);
+      };
+
+      marker.on("click", onMarkerActivate);
+      marker.on("tap", () => marker.fire("click"));
+
+      poiMarkers.set(poi.id, marker);
+    }
+
+    /* ================= MARKER ENTFERNEN ================= */
+    if ((!shouldBeVisible || !poi.is_visible) && existingMarker) {
+      map.removeLayer(existingMarker);
+      poiMarkers.delete(poi.id);
+    }
   }
 }
 
-  }
-}
 
 async function giveItem(itemKey) {
   const { data: item, error } = await sb
