@@ -121,6 +121,7 @@
 <script>
   let forcedEventActive = false;
   let hasCenteredMap = false;
+  let discoveryLock = new Set();
 /* ================= SUPABASE ================= */
 const SUPABASE_URL = "https://pzghhhgoqidhddifolva.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6Z2hoaGdvcWlkaGRkaWZvbHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNzkyMTcsImV4cCI6MjA4MTY1NTIxN30.lRsdxk46AG_eOam_YCFQONZ0kbzPK0m3NH6RgC9Iq_s";
@@ -300,11 +301,16 @@ async function hasDiscovered(poiId) {
 }
 
 async function saveDiscovery(poiId) {
-  await sb.from("poi_discoveries").insert({
-    poi_id: poiId,
-    player_id: currentUser.id
-  });
+  return await sb
+    .from("poi_discoveries")
+    .insert({
+      poi_id: poiId,
+      player_id: currentUser.id
+    })
+    .onConflict("player_id,poi_id")
+    .ignore();
 }
+
 
 /* ================= INSPECT EVENTS + CHOICES ================= */
 async function getInspectEvent(poiId) {
@@ -438,9 +444,10 @@ async function triggerForcedEvent(event, poiId) {
   });
 
   // ✅ ALSO mark POI as discovered (IMPORTANT)
-  if (!(await hasDiscovered(poiId))) {
-    await saveDiscovery(poiId);
-  }
+if (!discoveryLock.has(poiId)) {
+  discoveryLock.add(poiId);
+  await saveDiscovery(poiId);
+}
 
   // ✅ now show the event
   await tryOpenEvent(event);
@@ -537,11 +544,22 @@ if (poi.is_visible && !poiMarkers.has(poi.id)) {
 
 
     // === PASSIVE DISCOVERY ===
-    const d = distance(userLat, userLng, poi.lat, poi.lng);
-    if (d <= poi.radius && !(await hasDiscovered(poi.id))) {
-      showAlert("Entdeckt: " + poi.name);
-      await saveDiscovery(poi.id);
-    }
+// === PASSIVE DISCOVERY ===
+const d = distance(userLat, userLng, poi.lat, poi.lng);
+
+if (
+  d <= poi.radius &&
+  !discoveryLock.has(poi.id)
+) {
+  discoveryLock.add(poi.id);
+
+  const { error } = await saveDiscovery(poi.id);
+
+  if (!error) {
+    showAlert("Entdeckt: " + poi.name);
+  }
+}
+
   }
 }
 
