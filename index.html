@@ -424,15 +424,28 @@ async function getForcedEvents(poiId) {
 }
 async function triggerForcedEvent(event, poiId) {
   if (forcedEventActive) return;
+
+  const alreadyTriggered = await hasTriggeredForcedEvent(event.id);
+  if (alreadyTriggered) return;
+
   forcedEventActive = true;
 
-  // Forced Event merkt sich, zu welchem POI es gehört
-  event.__forcedPoiId = poiId;
+  // ✅ remember forced event
+  await sb.from("player_forced_events").insert({
+    player_id: currentUser.id,
+    event_id: event.id,
+    poi_id: poiId
+  });
 
- await tryOpenEvent(event);
+  // ✅ ALSO mark POI as discovered (IMPORTANT)
+  if (!(await hasDiscovered(poiId))) {
+    await saveDiscovery(poiId);
+  }
 
+  // ✅ now show the event
+  await tryOpenEvent(event);
 
-  // Overlay beobachten
+  // Overlay observer
   const overlay = document.getElementById("event-overlay");
   const observer = new MutationObserver(() => {
     if (overlay.style.display === "none") {
@@ -444,6 +457,21 @@ async function triggerForcedEvent(event, poiId) {
   observer.observe(overlay, { attributes: true });
 }
 
+async function hasTriggeredForcedEvent(eventId) {
+  const { data, error } = await sb
+    .from("player_forced_events")
+    .select("id")
+    .eq("player_id", currentUser.id)
+    .eq("event_id", eventId)
+    .limit(1);
+
+  if (error) {
+    console.error("Forced event check failed:", error);
+    return false;
+  }
+
+  return data.length > 0;
+}
 
 
 
@@ -459,14 +487,17 @@ async function loadPOIs() {
   for (const poi of pois) {
 
     // === FORCED EVENTS ===
-    const forced = await getForcedEvents(poi.id);
-    if (forced.length && !(await hasDiscovered(poi.id))) {
-      const d = distance(userLat, userLng, poi.lat, poi.lng);
-      if (d <= forced[0].trigger_radius) {
-        await triggerForcedEvent(forced[0], poi.id);
-        continue;
-      }
+const forced = await getForcedEvents(poi.id);
+if (forced.length) {
+  const alreadyTriggered = await hasTriggeredForcedEvent(forced[0].id);
+  if (!alreadyTriggered) {
+    const d = distance(userLat, userLng, poi.lat, poi.lng);
+    if (d <= forced[0].trigger_radius) {
+      await triggerForcedEvent(forced[0], poi.id);
+      continue;
     }
+  }
+}
 
     // === VISIBLE POIs (Inspect) ===
 if (poi.is_visible && !poiMarkers.has(poi.id)) {
