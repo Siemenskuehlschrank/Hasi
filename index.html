@@ -114,6 +114,26 @@
     <div id="event-choices"></div>
   </div>
 </div>
+<div id="storage-overlay"
+  style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.85);
+    z-index:10000;
+    color:white;
+    padding:20px;
+    overflow:auto;">
+  <h2>📦 Lager</h2>
+
+  <h3>🎒 Dein Inventar</h3>
+  <ul id="storage-player-list"></ul>
+
+  <h3>📦 Stauraum</h3>
+  <ul id="storage-poi-list"></ul>
+
+  <button onclick="closeStorage()">Schließen</button>
+</div>
 
 <div id="map"></div>
 <div id="alert-container"></div>
@@ -122,6 +142,7 @@
   let forcedEventActive = false;
   let hasCenteredMap = false;
   let discoveryLock = new Set();
+  let activeStoragePoi = null;
 /* ================= SUPABASE ================= */
 const SUPABASE_URL = "https://pzghhhgoqidhddifolva.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6Z2hoaGdvcWlkaGRkaWZvbHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNzkyMTcsImV4cCI6MjA4MTY1NTIxN30.lRsdxk46AG_eOam_YCFQONZ0kbzPK0m3NH6RgC9Iq_s";
@@ -220,7 +241,15 @@ function showAlert(text) {
   document.getElementById("alert-container").appendChild(box);
   setTimeout(() => box.remove(), 5000);
 }
-
+async function openStorage(poi) {
+  activeStoragePoi = poi;
+  document.getElementById("storage-overlay").style.display = "block";
+  await refreshStorageUI();
+}
+function closeStorage() {
+  activeStoragePoi = null;
+  document.getElementById("storage-overlay").style.display = "none";
+}
 /* ================= GEO ================= */
 let userLat, userLng, userMarker;
 
@@ -489,6 +518,102 @@ async function hasTriggeredForcedEvent(eventId) {
   return data.length > 0;
 }
 
+/*==================Inventory===========*/
+async function refreshStorageUI() {
+  if (!activeStoragePoi) return;
+
+  const playerList = document.getElementById("storage-player-list");
+  const poiList = document.getElementById("storage-poi-list");
+
+  playerList.innerHTML = "";
+  poiList.innerHTML = "";
+
+  // 🎒 Spielerinventar
+  const { data: playerItems } = await sb
+    .from("player_items")
+    .select("id, items(name)")
+    .eq("player_id", currentUser.id);
+
+  if (!playerItems.length) {
+    playerList.innerHTML = "<li>Leer</li>";
+  } else {
+    for (const row of playerItems) {
+      const li = document.createElement("li");
+      li.textContent = row.items.name;
+
+      const btn = document.createElement("button");
+      btn.textContent = "→ Lagern";
+      btn.onclick = () => storeItem(row.id);
+
+      li.appendChild(btn);
+      playerList.appendChild(li);
+    }
+  }
+
+  // 📦 POI Lager
+  const { data: storedItems } = await sb
+    .from("poi_storage")
+    .select("id, items(name)")
+    .eq("poi_id", activeStoragePoi.id);
+
+  if (!storedItems.length) {
+    poiList.innerHTML = "<li>Leer</li>";
+  } else {
+    for (const row of storedItems) {
+      const li = document.createElement("li");
+      li.textContent = row.items.name;
+
+      const btn = document.createElement("button");
+      btn.textContent = "← Nehmen";
+      btn.onclick = () => takeItem(row.id);
+
+      li.appendChild(btn);
+      poiList.appendChild(li);
+    }
+  }
+}
+async function storeItem(playerItemId) {
+  // 1. Item laden
+  const { data: itemRow } = await sb
+    .from("player_items")
+    .select("item_id")
+    .eq("id", playerItemId)
+    .maybeSingle();
+
+  if (!itemRow) return;
+
+  // 2. Aus Spielerinventar löschen
+  await sb.from("player_items").delete().eq("id", playerItemId);
+
+  // 3. Ins Lager legen
+  await sb.from("poi_storage").insert({
+    poi_id: activeStoragePoi.id,
+    item_id: itemRow.item_id
+  });
+
+  await refreshStorageUI();
+}
+async function takeItem(storageItemId) {
+  // 1. Item laden
+  const { data: itemRow } = await sb
+    .from("poi_storage")
+    .select("item_id")
+    .eq("id", storageItemId)
+    .maybeSingle();
+
+  if (!itemRow) return;
+
+  // 2. Aus Lager löschen
+  await sb.from("poi_storage").delete().eq("id", storageItemId);
+
+  // 3. Spieler bekommt Item
+  await sb.from("player_items").insert({
+    player_id: currentUser.id,
+    item_id: itemRow.item_id
+  });
+
+  await refreshStorageUI();
+}
 
 
 /* ================= POIs ================= */
@@ -545,23 +670,31 @@ async function loadPOIs() {
 
       L.DomEvent.disableClickPropagation(marker);
 
-      const onMarkerActivate = async () => {
-        if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
+const onMarkerActivate = async () => {
+  if (distance(userLat, userLng, poi.lat, poi.lng) > 15) return;
 
-        const event = await getInspectEvent(poi.id);
-        if (!event) return;
+  // 📦 LAGER HAT PRIORITÄT
+  if (poi.has_storage) {
+    openStorage(poi);
+    return;
+  }
 
-        const requirements = await getEventRequirements(event.id);
-        if (requirements.length > 0) {
-          const ok = await hasAllRequiredItems(requirements);
-          if (!ok) {
-            showAlert("Dir fehlt etwas, um hier weiterzumachen.");
-            return;
-          }
-        }
+  // 🔍 normales Inspect-Event
+  const event = await getInspectEvent(poi.id);
+  if (!event) return;
 
-        await openInspectEvent(event);
-      };
+  const requirements = await getEventRequirements(event.id);
+  if (requirements.length > 0) {
+    const ok = await hasAllRequiredItems(requirements);
+    if (!ok) {
+      showAlert("Dir fehlt etwas, um hier weiterzumachen.");
+      return;
+    }
+  }
+
+  await openInspectEvent(event);
+};
+
 
       marker.on("click", onMarkerActivate);
       marker.on("tap", () => marker.fire("click"));
