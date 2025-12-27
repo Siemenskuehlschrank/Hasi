@@ -337,6 +337,17 @@ async function hasDiscovered(poiId) {
 
   return data.length > 0;
 }
+function isPoiActiveNow(poi) {
+  const now = new Date();
+
+  const startsAt = poi.starts_at ? new Date(poi.starts_at) : null;
+  const endsAt   = poi.ends_at   ? new Date(poi.ends_at)   : null;
+
+  if (startsAt && now < startsAt) return false;
+  if (endsAt   && now > endsAt)   return false;
+
+  return true;
+}
 
 async function saveDiscovery(poiId) {
   const res = await sb
@@ -659,6 +670,15 @@ async function loadPOIs() {
   }
 
   for (const poi of pois) {
+// ⏰ Zeitlich inaktive POIs komplett ignorieren
+if (!isPoiActiveNow(poi)) {
+  const existingMarker = poiMarkers.get(poi.id);
+  if (existingMarker) {
+    map.removeLayer(existingMarker);
+    poiMarkers.delete(poi.id);
+  }
+  continue;
+}
 
     /* ================= FORCED EVENTS ================= */
     const forced = await getForcedEvents(poi.id);
