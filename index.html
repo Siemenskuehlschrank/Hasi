@@ -339,15 +339,20 @@ async function hasDiscovered(poiId) {
 }
 
 async function saveDiscovery(poiId) {
-  return await sb
+  const res = await sb
     .from("poi_discoveries")
     .insert({
       poi_id: poiId,
       player_id: currentUser.id
-    })
-    .onConflict("player_id,poi_id")
-    .ignore();
+    });
+
+  if (res.error) {
+    console.error("Discovery insert failed:", res.error);
+  }
+
+  return res;
 }
+
 
 
 /* ================= INSPECT EVENTS + CHOICES ================= */
@@ -673,13 +678,18 @@ async function loadPOIs() {
     const discovered = await hasDiscovered(poi.id);
 
     // 🔓 PASSIVE DISCOVERY (einmalig, abgesichert)
-    if (d <= poi.radius && !discovered && !discoveryLock.has(poi.id)) {
-      discoveryLock.add(poi.id);
-      const { error: discoveryError } = await saveDiscovery(poi.id);
-      if (!discoveryError) {
-        showAlert("Entdeckt: " + poi.name);
-      }
-    }
+if (d <= poi.radius && !discovered && !discoveryLock.has(poi.id)) {
+  discoveryLock.add(poi.id);
+
+  const res = await saveDiscovery(poi.id);
+
+  if (res.error) {
+    console.error("Discovery failed:", res.error);
+  } else {
+    showAlert("Entdeckt: " + poi.name);
+  }
+}
+
 
     const shouldBeVisible = discovered || d <= poi.radius;
     const existingMarker = poiMarkers.get(poi.id);
