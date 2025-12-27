@@ -107,6 +107,35 @@
     border: none;">
   🎒 Inventar
 </button>
+<button id="quest-btn"
+  style="
+    position: fixed;
+    top: 60px;
+    right: 15px;
+    z-index: 10001;
+    padding: 10px 14px;
+    font-size: 16px;
+    background: #111;
+    color: #fff;
+    border-radius: 8px;
+    border: none;">
+  📜 Quests
+</button>
+<div id="quest-overlay"
+  style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.85);
+    z-index:10000;
+    color:white;
+    padding:20px;
+    overflow:auto;">
+  <h2>Quests</h2>
+  <ul id="quest-list"></ul>
+  <button onclick="closeQuests()">Schließen</button>
+</div>
+
 <div id="event-overlay">
   <div id="event-box">
     <h2 id="event-title"></h2>
@@ -456,7 +485,11 @@ async function openInspectEvent(event) {
       for (const itemKey of items) {
         await giveItem(itemKey);
       }
-
+// ⭐ Quests vergeben
+const quests = await getQuestsForChoice(choice.id);
+for (const questKey of quests) {
+  await giveQuest(questKey);
+}
       text.textContent = choice.result_text;
       box.innerHTML = "";
 
@@ -766,6 +799,60 @@ marker.on("touchstart", onMarkerActivate);
     }
   }
 }
+async function giveQuest(questKey) {
+  const { data: quest, error } = await sb
+    .from("quests")
+    .select("id")
+    .eq("key", questKey)
+    .maybeSingle();
+
+  if (error || !quest) {
+    console.error("Quest not found:", questKey);
+    return;
+  }
+
+  await sb
+    .from("player_quests")
+    .insert({
+      player_id: currentUser.id,
+      quest_id: quest.id
+    })
+    .onConflict("player_id,quest_id")
+    .ignore();
+}
+async function openQuests() {
+  const overlay = document.getElementById("quest-overlay");
+  const list = document.getElementById("quest-list");
+  list.innerHTML = "";
+
+  const { data } = await sb
+    .from("player_quests")
+    .select("completed, quests(title, description)")
+    .eq("player_id", currentUser.id);
+
+  if (!data.length) {
+    list.innerHTML = "<li>Keine Quests</li>";
+  } else {
+    for (const q of data) {
+      const li = document.createElement("li");
+      li.textContent =
+        (q.completed ? "✔️ " : "❌ ") +
+        q.quests.title +
+        (q.completed ? "" : " (offen)");
+      list.appendChild(li);
+    }
+  }
+
+  overlay.style.display = "block";
+}
+
+function closeQuests() {
+  document.getElementById("quest-overlay").style.display = "none";
+}
+
+document
+  .getElementById("quest-btn")
+  .addEventListener("click", openQuests);
 
 
 async function giveItem(itemKey) {
@@ -830,6 +917,26 @@ async function tryOpenEvent(event) {
   await openInspectEvent(event);
 }
 
+async function completeQuest(questKey) {
+  const { data: quest } = await sb
+    .from("quests")
+    .select("id")
+    .eq("key", questKey)
+    .maybeSingle();
+
+  if (!quest) return;
+
+  await sb
+    .from("player_quests")
+    .update({
+      completed: true,
+      completed_at: new Date().toISOString()
+    })
+    .eq("player_id", currentUser.id)
+    .eq("quest_id", quest.id);
+}
+
+
 async function getItemsForChoice(choiceId) {
   const { data, error } = await sb
     .from("choice_items")
@@ -840,6 +947,14 @@ async function getItemsForChoice(choiceId) {
     console.error("Choice Items Fehler:", error);
     return [];
   }
+async function getQuestsForChoice(choiceId) {
+  const { data } = await sb
+    .from("choice_quests")
+    .select("quest_key")
+    .eq("choice_id", choiceId);
+
+  return data.map(r => r.quest_key);
+}
 
   return data.map(r => r.item_key);
 }
