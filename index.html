@@ -669,16 +669,18 @@ async function loadPOIs() {
     return;
   }
 
-  for (const poi of pois) {
-// ⏰ Zeitlich inaktive POIs komplett ignorieren
-if (!isPoiActiveNow(poi)) {
-  const existingMarker = poiMarkers.get(poi.id);
-  if (existingMarker) {
-    map.removeLayer(existingMarker);
-    poiMarkers.delete(poi.id);
+for (const poi of pois) {
+
+  // ⏰ POI zeitlich prüfen (start / end)
+  if (!isPoiActiveNow(poi)) {
+    const existingMarker = poiMarkers.get(poi.id);
+    if (existingMarker) {
+      map.removeLayer(existingMarker);
+      poiMarkers.delete(poi.id);
+    }
+    continue; // ⬅️ WICHTIG: nicht return!
   }
-  continue;
-}
+
 
     /* ================= FORCED EVENTS ================= */
     const forced = await getForcedEvents(poi.id);
@@ -686,10 +688,11 @@ if (!isPoiActiveNow(poi)) {
       const alreadyTriggered = await hasTriggeredForcedEvent(forced[0].id);
       if (!alreadyTriggered) {
         const dForced = distance(userLat, userLng, poi.lat, poi.lng);
-        if (dForced <= forced[0].trigger_radius) {
-          await triggerForcedEvent(forced[0], poi.id);
-          continue;
-        }
+if (dForced <= forced[0].trigger_radius) {
+  await triggerForcedEvent(forced[0], poi.id);
+  // KEIN continue!
+}
+
       }
     }
 
